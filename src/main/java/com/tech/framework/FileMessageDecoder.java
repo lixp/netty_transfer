@@ -23,10 +23,10 @@ public class FileMessageDecoder extends ReplayingDecoder<FileMessageState> {
 	private int file_content_capacity;//文件内容的容量
 	private int file_suffix_capacity;//文件后缀名的容量
 	private int file_len;
-	private List<String> id_str = new ArrayList<String>();
-	private List<Byte> suffix_byte = new ArrayList<Byte>();
-	private List<byte[]> file_content_list = new ArrayList<byte[]>();
-	private Map<String,Object> outMap = new HashMap<String,Object>();
+	private List<String> id_str = new ArrayList<String>();//假设会有合并图片和删除图片的动作，则需要传入多个fileId
+	private List<Byte> suffix_byte = new ArrayList<Byte>();// multiple file to upload to fastdfs, each file's suffix is required
+	private List<byte[]> file_content_list = new ArrayList<byte[]>(); // collect each file's content formed in byte array
+	private Map<String,Object> outMap = new HashMap<String,Object>(); // the result to the next pipeline
 	public FileMessageDecoder() {
 		// Set the initial state.
 		super(FileMessageState.CMD);
@@ -37,6 +37,7 @@ public class FileMessageDecoder extends ReplayingDecoder<FileMessageState> {
 		// TODO Auto-generated method stub
 		System.out.println("decode.......");
 		switch (state()) {
+		//read the first byte to decide which cmd to exec
 	      case CMD:
 	       cmd = buf.readByte();
 	       System.out.println(cmd+".......cmd");
@@ -48,41 +49,47 @@ public class FileMessageDecoder extends ReplayingDecoder<FileMessageState> {
 	    	   checkpoint(FileMessageState.FILE_COUNT);
 	       }
 	       break;
+	     //if the cmd is delete or composite, the picture count
 	     case ID_SIZE:
 	       id_size = buf.readByte();
 	       id_capacity = id_size;
 	       outMap.put(FileInfoConstant.FILE_ID_COUNT, id_size);
 	       checkpoint(FileMessageState.ID_LENGTH);
 	       break;
+	     //each file id content byte array length
 	     case ID_LENGTH:
 	       id_len = buf.readInt();
 	       checkpoint(FileMessageState.ID_VALUE);
 	       break;
+	     // each file id content  byte array
 	     case ID_VALUE:
-	       //图片情况
-	       id_size--;
-	       ByteBuf buf_tmp = buf.readBytes(id_len);
-	       String id_str_tmp = new String(buf_tmp.array());
+	       id_size--;//if the id has been read finished
+	       ByteBuf buf_tmp = buf.readBytes(id_len);//read the content
+	       String id_str_tmp = new String(buf_tmp.array());//convert to string
 	       if(id_capacity == 1){
-	    	   //处理单个file_id的操作
-    		   outMap.put(FileInfoConstant.FILE_ID, id_str_tmp);
+	    	   //if the operator is only one
+    		   outMap.put(FileInfoConstant.FILE_ID, id_str_tmp); // put the content into result
     		   out.add(outMap);
     		   return;
     	   }
 	       if(id_capacity > 1) {
-	    	   //处理多个file_id的操作
+	    	   //if the operator is more than one
 	    	   id_str.add(id_str_tmp);
 	       }
-	       outMap.put(FileInfoConstant.FILE_ID_LIST,id_str);
 	       if(id_size < 1) {
-	    	   out.add(outMap);
+	    	   //if the operator is the last one
+	    	   outMap.put(FileInfoConstant.FILE_ID_LIST,id_str);
+		       out.add(outMap);
 		       return;
 	       }
 	       if(id_size >= 1) {
+	    	   //if the operator is not the last one, turn back to ID_LENGTH
 	    	   checkpoint(FileMessageState.ID_LENGTH); 
 	       }
 	       break;
+	     //if the cmd is multiple file upload
 	     case FILE_COUNT:
+	       //read the first byte that record the file count
 	       file_count_content = buf.readByte();
 	       file_count_suffix = file_count_content;
 	       file_content_capacity = file_count_content;
@@ -90,10 +97,12 @@ public class FileMessageDecoder extends ReplayingDecoder<FileMessageState> {
 	       outMap.put(FileInfoConstant.FILE_CONTENT_COUNT, file_suffix_capacity);
 	       checkpoint(FileMessageState.FILE_SUFFIX); 
 	       break;
+	     //read the suffix and then match the file suffix
 	     case FILE_SUFFIX:
+	       //count the file processed
 	       file_count_suffix--;
-	       Byte suffix_byte_tmp = buf.readByte();
-	       if(file_suffix_capacity == 1) {
+	       Byte suffix_byte_tmp = buf.readByte();//the byte is the flag to indicate the file suffix
+	       if(file_suffix_capacity == 1) {//if the file is the only one, put the singal object into result
 	    	   outMap.put(FileInfoConstant.FILE_SUFFIX, suffix_byte_tmp);
 	    	   checkpoint(FileMessageState.FILE_LENGTH);
 	    	   break;
@@ -105,31 +114,33 @@ public class FileMessageDecoder extends ReplayingDecoder<FileMessageState> {
 	       }
 	       if(file_count_suffix >= 1) {
 	    	   checkpoint(FileMessageState.FILE_SUFFIX);
+	    	   break;
 	       }
-	       break;
+	     // read the file content length 
 	     case FILE_LENGTH:
 	    	file_len = buf.readInt();
 	    	checkpoint(FileMessageState.FILE_VALUE);
-	    	break;
 	     case FILE_VALUE:
+	    	//count the file read
 	    	file_count_content--;
 	    	ByteBuf file_arr_tmp = buf.readBytes(file_len);
+	    	//read the file content
 	    	byte[] file_content_arr_tmp = file_arr_tmp.array();
-	    	if(file_content_capacity == 1) {
+	    	if(file_content_capacity == 1) {//if the file count is 1
 	    		outMap.put(FileInfoConstant.FILE_CONTENT, file_content_arr_tmp);
 	    		out.add(outMap);
 	    		return;
 	    	}
 	    	file_content_list.add(file_content_arr_tmp);
-	    	if(file_count_content < 1) {
+	    	if(file_count_content < 1) {//indicate that the file is the last one and then return the result
 	    		outMap.put(FileInfoConstant.FILE_CONTENT_LIST, file_content_list);
 	    		out.add(outMap);
 	    		return;
 	    	}
 	    	if(file_count_content >= 1) {
 	    		checkpoint(FileMessageState.FILE_LENGTH);
+	    		break;
 	    	}
-	    	break;
 	      default:
 	       throw new Error("Shouldn't reach here.");
 	    }
