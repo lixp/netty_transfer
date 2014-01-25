@@ -2,11 +2,10 @@ package com.tech.framework;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 
 public class FileMessageServer {
@@ -28,6 +27,8 @@ public class FileMessageServer {
             // In this example, this does not happen, but you can do that to gracefully
             // shut down your server.
             f.channel().closeFuture().sync();
+            //this get notified when a write request is finished
+            f.addListener(ChannelFutureListener.CLOSE);
         } finally {
             workerGroup.shutdownGracefully();
             bossGroup.shutdownGracefully();

@@ -16,7 +16,6 @@ public class FileMessageClientInitializer extends ChannelInitializer<SocketChann
 		// TODO Auto-generated method stub
 		ChannelPipeline pipeline = ch.pipeline();
 		pipeline.addLast("handler", new FileMessageClientHandler(fileMessage));
-        pipeline.addLast("inflater", ZlibCodecFactory.newZlibDecoder(ZlibWrapper.GZIP));
-	}
+   }
 
 }
